@@ -1,0 +1,36 @@
+image: node:12.18.2-alpine
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: node eslint scan
+          caches:
+            - node
+          script:
+            - apk --no-cache add curl
+            - URL=$(curl -i https://api.bitbucket.org/2.0/repositories/$BITBUCKET_WORKSPACE/$BITBUCKET_REPO_SLUG/pullrequests/$BITBUCKET_PR_ID/diff -X GET -u $user:$pass 2>&1  | grep "https" | cut -d' ' -f2)
+            - echo $URL
+            - URL=${URL%$'\r'}
+            - curl $URL -X GET -u $user:$pass | grep "diff --git a" | awk '{printf $4}' | sed 's/b\//\n/g' | sed '/./,$!d' > PR_FILES_TEMP.log
+            - cat PR_FILES_TEMP.log
+            - cat PR_FILES_TEMP.log | grep ".js" > PR_FILES.log || true
+            - cat PR_FILES.log
+            - npm install
+            - rm -f lint.log; touch lint.log
+            - >
+              for FILE in $(cat PR_FILES.log);
+              do
+                npx eslint $FILE >> lint.log || true
+              done
+            - >
+              if [ -s lint.log ]; then 
+                cat lint.log
+              fi
+            - >
+              if [ -s lint.log ]; then 
+                curl https://api.bitbucket.org/2.0/repositories/$BITBUCKET_WORKSPACE/$BITBUCKET_REPO_SLUG/pullrequests/$BITBUCKET_PR_ID/comments/ -X POST -u $user:$pass -H 'Content-Type:application/json' -d '{"content":{"raw":"Node eslint scan failed"}}'
+              fi
+            - >
+              if [ -s lint.log ]; then 
+                exit 1
+              fi
